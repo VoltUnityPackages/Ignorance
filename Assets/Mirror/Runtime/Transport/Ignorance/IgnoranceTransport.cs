@@ -10,24 +10,30 @@
 // at https://github.com/SoftwareGuy/Ignorance. Remember, OSS is the
 // way of the future!
 // ----------------------------------------
+using System;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Threading;
+// ENET
 using ENet;
+using Event = ENet.Event;
+using EventType = ENet.EventType;
+// Others
 #if UNITY_EDITOR
 using Mirror.Ignorance.Editor;
 #endif
-using System;
-using System.Collections.Generic;
-using UnityEngine;
-using Event = ENet.Event;
-using EventType = ENet.EventType;
 #if !IGNORANCE_NO_UPNP
 using Open.Nat;
-using System.Threading;
 #endif
+// Unity
+using UnityEngine;
+
+
 
 namespace Mirror
 {
     /// <summary>
-    /// Ignorance rUDP Transport is built upon the ENet-C# wrapper by nxrighthere.
+    /// Ignorance rUDP Transport is built upon the ENet-C# wrapper.
     /// </summary>
     [HelpURL("https://github.com/SoftwareGuy/Ignorance/blob/master/README.md")]
     public class IgnoranceTransport : Transport, ISegmentTransport
@@ -145,6 +151,10 @@ namespace Mirror
         #endregion
 
         #region Transport-level references, dictonaries, etc.
+
+        private ConcurrentQueue<QueuedTransmissionPayload> ClientTransmissionQueue = new ConcurrentQueue<QueuedTransmissionPayload>();
+        private ConcurrentQueue<QueuedTransmissionPayload> ServerTransmissionQueue = new ConcurrentQueue<QueuedTransmissionPayload>();
+
         // Explicitly give these new references on startup, just to make sure that we get no null reference exceptions.
         private Host m_Server = new Host();
         private Host m_Client = new Host();
@@ -222,8 +232,7 @@ namespace Mirror
         /// <returns>The Peer's IP if valid, otherwise it will return "(invalid)".</returns>
         public override string ServerGetClientAddress(int connectionId)
         {
-            Peer result;
-            if (knownConnIDToPeers.TryGetValue(connectionId, out result))
+            if (knownConnIDToPeers.TryGetValue(connectionId, out Peer result))
             {
                 return result.IP;
             }
@@ -238,9 +247,7 @@ namespace Mirror
         /// <returns>True if the connection exists, false otherwise.</returns>
         public override bool ServerDisconnect(int connectionId)
         {
-            Peer result;
-
-            if (knownConnIDToPeers.TryGetValue(connectionId, out result))
+            if (knownConnIDToPeers.TryGetValue(connectionId, out Peer result))
             {
                 result.DisconnectNow(0);
             }
@@ -260,6 +267,8 @@ namespace Mirror
         /// <param name="maxConnections">How many connections can we have?</param>
         public void ServerStart(string networkAddress, ushort port, int maxConnections)
         {
+            ServerTransmissionQueue = new ConcurrentQueue<QueuedTransmissionPayload>();
+
             // Do not attempt to start more than one server.
             // Check if the server is active before attempting to create. If it returns true,
             // then we should not continue, and we'll emit a refusal error message.
@@ -389,6 +398,8 @@ namespace Mirror
             foreach (KeyValuePair<int, Peer> entry in knownConnIDToPeers) entry.Value.DisconnectNow(0);
 
             // Cleanup in the connection isle.
+            ServerTransmissionQueue = null;
+
             knownConnIDToPeers = new Dictionary<int, Peer>();
             knownPeersToConnIDs = new Dictionary<Peer, int>();
 
@@ -431,7 +442,7 @@ namespace Mirror
 
             if (channelId >= m_ChannelDefinitions.Count)
             {
-                LogError($"ERROR: Refusing to even attempt to send data on channel {channelId}. It is either greater than or equal to the channel definition count." +
+                LogError($"Ignorance: Refusing to even attempt to send data on channel {channelId}. It is either greater than or equal to the channel definition count." +
                     $"If you think this is a bug, consider filing a bug report.");
                 return false;
             }
@@ -441,10 +452,23 @@ namespace Mirror
                 Log($"DEBUG: m_ChannelDefinitions[{channelId}] => { m_ChannelDefinitions[channelId] }");
             }
 
-            // This should fix that bloody AccessViolation
-            // Issue reference: https://github.com/nxrighthere/ENet-CSharp/issues/28#issuecomment-436100923
+            if (!knownConnIDToPeers.TryGetValue(connectionId, out Peer target))
+            {
+                LogError($"Who is connection {connectionId}? No Peer exists for that ID.");
+                return false;
+            }
+
             mailingPigeon.Create(data.Array, data.Offset, data.Count + data.Offset, MapKnownChannelTypeToENETPacketFlag(m_ChannelDefinitions[channelId]));
 
+            QueuedTransmissionPayload qtp = default;
+            qtp.connId = connectionId;
+            qtp.channelId = (byte)channelId;
+            qtp.contents = mailingPigeon;
+
+            ServerTransmissionQueue.Enqueue(qtp);
+
+            return true;
+            /*
             // More haxx. see https://github.com/nxrighthere/ENet-CSharp/issues/21 for some background info-ish.
             Peer target;
             if (knownConnIDToPeers.TryGetValue(connectionId, out target))
@@ -479,6 +503,7 @@ namespace Mirror
                 }
                 return false;
             }
+            */
         }
         #endregion
 
@@ -499,6 +524,7 @@ namespace Mirror
 
             Log($"Ignorance: Acknowledging connection request to {address}:{m_Port}");
 
+            ClientTransmissionQueue = new ConcurrentQueue<QueuedTransmissionPayload>();
             if (m_Client == null) m_Client = new Host();
             if (!m_Client.IsSet) m_Client.Create(null, 1, m_ChannelDefinitions.Count);
             if (m_UseLZ4Compression) m_Client.EnableCompression();
@@ -577,6 +603,7 @@ namespace Mirror
             }
 
             m_Client = null;
+            ClientTransmissionQueue = null;
         }
         #endregion
 
@@ -604,7 +631,7 @@ namespace Mirror
 
             if (channelId >= m_ChannelDefinitions.Count)
             {
-                LogError($"ERROR: Refusing to even attempt to send data on channel {channelId}. It is either greater than or equal to the channel definition count." +
+                LogError($"Ignorance: Refusing to even attempt to send data on channel {channelId}. It is either greater than or equal to the channel definition count." +
                     $"If you think this is a bug, consider filing a bug report.");
                 return false;
             }
@@ -616,6 +643,15 @@ namespace Mirror
 
             mailingPigeon.Create(data.Array, data.Offset, data.Count + data.Offset, MapKnownChannelTypeToENETPacketFlag(m_ChannelDefinitions[channelId]));
 
+            QueuedTransmissionPayload qtp = default;
+            qtp.channelId = (byte)channelId;
+            qtp.contents = mailingPigeon;
+
+            ClientTransmissionQueue.Enqueue(qtp);
+
+            return true;
+
+            /*
             if (m_TransportVerbosity > TransportVerbosity.Chatty)
             {
                 Log($"Ignorance: Client sending byte {data.Count} payload on channel {channelId} to server...");
@@ -634,6 +670,7 @@ namespace Mirror
                 LogWarning("Ignorance: Outgoing packet sending wasn't successful. We might have disconnected or we're experiencing weirdness.");
                 return false;
             }
+            */
         }
         #endregion
 
@@ -665,12 +702,10 @@ namespace Mirror
         /// New, "improved" server-side message processor. Multi messages per LateUpdate tick.
         /// </summary>
         /// <returns></returns>
-        public bool NewServerMessageProcessor()
+        public bool ServerPump()
         {
             bool serverWasPolled = false;
-            int deadPeerConnID, timedOutConnID, knownConnectionID;
             int newConnectionID = serverConnectionCnt;
-            Event networkEvent;
 
             // Don't attempt to process anything if the server is not active.
             if (!ServerActive()) return false;
@@ -678,9 +713,19 @@ namespace Mirror
             // Only process messages if the server is valid.
             if (!IsValid(m_Server)) return false;
 
+            // Drain the queue and send out packets.
+            while (ServerTransmissionQueue.TryDequeue(out QueuedTransmissionPayload q))
+            {
+                if (knownConnIDToPeers.TryGetValue(q.connId, out Peer p))
+                {
+                    p.Send(q.channelId, ref q.contents);
+                }
+            }
+
+            // Poll the server now.
             while (!serverWasPolled)
             {
-                if (m_Server.CheckEvents(out networkEvent) <= 0)
+                if (m_Server.CheckEvents(out Event networkEvent) <= 0)
                 {
                     if (m_Server.Service(0, out networkEvent) <= 0)
                         break;
@@ -710,7 +755,7 @@ namespace Mirror
                     case EventType.Disconnect:
                         // A client disconnected.
 
-                        if (knownPeersToConnIDs.TryGetValue(networkEvent.Peer, out deadPeerConnID))
+                        if (knownPeersToConnIDs.TryGetValue(networkEvent.Peer, out int deadPeerConnID))
                         {
                             if (m_TransportVerbosity > TransportVerbosity.SilenceIsGolden) Log($"Ignorance: Connection ID {knownPeersToConnIDs[networkEvent.Peer]} has disconnected.");
                             OnServerDisconnected.Invoke(deadPeerConnID);
@@ -725,7 +770,7 @@ namespace Mirror
                         if (m_TransportVerbosity > TransportVerbosity.Chatty) Log($"Ignorance: Server data channel {networkEvent.ChannelID} receiving a {networkEvent.Packet.Length} byte payload");
 
                         // Only process data from known peers.
-                        if (knownPeersToConnIDs.TryGetValue(networkEvent.Peer, out knownConnectionID))
+                        if (knownPeersToConnIDs.TryGetValue(networkEvent.Peer, out int knownConnectionID))
                         {
                             NewMessageDataProcessor(networkEvent.Packet, true, knownConnectionID);
                         }
@@ -741,7 +786,7 @@ namespace Mirror
                         break;
                     case EventType.Timeout:
                         // A client timed out. Note that this could be the same as the disconnected, but for now I'm going to seperate them for debugging reasons
-                        if (knownPeersToConnIDs.TryGetValue(networkEvent.Peer, out timedOutConnID))
+                        if (knownPeersToConnIDs.TryGetValue(networkEvent.Peer, out int timedOutConnID))
                         {
                             if (m_TransportVerbosity > TransportVerbosity.SilenceIsGolden) Log($"Ignorance: Connection ID {knownPeersToConnIDs[networkEvent.Peer]} has timed out.");
                             OnServerDisconnected.Invoke(timedOutConnID);
@@ -796,26 +841,31 @@ namespace Mirror
         /// New "improved" client message processor.
         /// </summary>
         /// <returns>True if successful, False if not.</returns>
-        public bool NewClientMessageProcessor()
+        public bool ClientPump()
         {
             if (!IsValid(m_Client) || m_ClientPeer.State == PeerState.Uninitialized)
             {
                 return false;
             }
 
-            bool clientWasPolled = false;
-            Event networkEvent;
+            // Drain the client outgoing queue.
+            while (ClientTransmissionQueue.TryDequeue(out QueuedTransmissionPayload q))
+            {
+                m_ClientPeer.Send(q.channelId, ref q.contents);
+            }
 
-            // Only process messages if the client is valid.
+            bool clientWasPolled = false;
+
             while (!clientWasPolled)
             {
+                /*
                 if (!IsValid(m_Client))
                 {
                     if (m_TransportVerbosity >= TransportVerbosity.Paranoid) LogWarning("Ignorance: NewClientMessageProcessor() loop: client not valid.");
                     return false;
                 }
-
-                if (m_Client.CheckEvents(out networkEvent) <= 0)
+                */
+                if (m_Client.CheckEvents(out Event networkEvent) <= 0)
                 {
                     if (m_Client.Service(0, out networkEvent) <= 0) break;
                     clientWasPolled = true;
@@ -923,9 +973,9 @@ namespace Mirror
             Library.Deinitialize();
             Log("Ignorance shutdown complete. Have a good one.");
         }
-#endregion
+        #endregion
 
-#region Transport - Inherited functions from Mirror
+        #region Transport - Inherited functions from Mirror
         // Prettify the output string, rather than IgnoranceTransport (Mirror.IgnoranceTransport)
         public override string ToString()
         {
@@ -937,8 +987,8 @@ namespace Mirror
         {
             if (enabled)
             {
-                NewServerMessageProcessor();
-                NewClientMessageProcessor();
+                ServerPump();
+                ClientPump();
             }
         }
 
@@ -973,9 +1023,9 @@ namespace Mirror
             }
         }
 
-#endregion
+        #endregion
 
-#region Transport - Statistics
+        #region Transport - Statistics
         /// <summary>
         /// Server-world Packets Sent Counter, directly from ENET.
         /// </summary>
@@ -1030,9 +1080,9 @@ namespace Mirror
         {
             return m_ClientPeer.IsSet ? m_ClientPeer.PacketsLost : 0;
         }
-#endregion
+        #endregion
 
-#region Transport - Message Loggers
+        #region Transport - Message Loggers
         // Static helpers
         private void Log(object text)
         {
@@ -1048,9 +1098,9 @@ namespace Mirror
         {
             Debug.LogWarning(text);
         }
-#endregion
+        #endregion
 
-#region Transport - Toolbox
+        #region Transport - Toolbox
         /// <summary>
         /// Checks if a host object is valid.
         /// </summary>
@@ -1081,9 +1131,9 @@ namespace Mirror
                     return PacketFlags.Unsequenced;
             }
         }
-#endregion
+        #endregion
 
-#region Transport - Custom
+        #region Transport - Custom
         public enum TransportVerbosity
         {
             SilenceIsGolden,
@@ -1106,9 +1156,16 @@ namespace Mirror
             UnreliableFragmented,
             UnreliableSequenced,
         }
-#endregion
 
-#region UPnP - Automatic port forwarding
+        public struct QueuedTransmissionPayload
+        {
+            public int connId;
+            public byte channelId;
+            public Packet contents;
+        }
+        #endregion
+
+        #region UPnP - Automatic port forwarding
 #if !IGNORANCE_NO_UPNP
         public async void DoServerPortForwarding()
         {
@@ -1177,9 +1234,35 @@ namespace Mirror
             }
         }
 #endif
-#endregion
+        #endregion
 
         public ushort port { get { return m_Port; } set { m_Port = value; } }   // Backwards compatibility.
         public string Version { get { return TransportInfo.Version; } }
+
+        #region Some really dirty debugging OnGUI calls
+        public void OnGUI()
+        {
+            GUILayout.BeginArea(new Rect(new Vector2(0, 0), new Vector2(128, 32)));
+            GUILayout.BeginHorizontal();
+            if (ClientTransmissionQueue != null)
+            {
+                GUILayout.Box(ClientTransmissionQueue.Count.ToString());
+            } else
+            {
+                GUILayout.Box("-");
+            }
+
+            if (ServerTransmissionQueue != null)
+            {
+                GUILayout.Box(ServerTransmissionQueue.Count.ToString());
+            }
+            else
+            {
+                GUILayout.Box("-");
+            }
+            GUILayout.EndHorizontal();
+            GUILayout.EndArea();
+        }
+        #endregion
     }
 }
