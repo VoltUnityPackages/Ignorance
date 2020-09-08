@@ -388,7 +388,7 @@ Assets/Plugins
 Assets/Plugins.meta
 Assets/NotFucked.meta
 Assets/Mirror/Runtime/Mirror.asmdef
-Assets/Mirror/*.meta
+# Assets/Mirror/*.meta
 Assets/Mirror/Readme.txt
 Assets/Mirror/version.txt
 Assets/StreamingAssets.meta
