@@ -1,0 +1,13 @@
+{
+  "name": "com.mirror-networking.mirror.transport.ignorance",
+  "displayName": "Ignorance Transport",
+  "version": "1.3.9",
+  "unity": "2019.1",
+  "description": "Ignorance is a plug and play Enet-powered reliable UDP transport for Mirror Networking. By utilizing the Enet backend, Ignorance is a solid replacement for the Unity LLAPI transport.",
+  "author": "Mirror Networking",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VoltUnityPackages/Ignorance.git"
+  },
+  "type": "library"
+}
