@@ -341,10 +341,10 @@ ASALocalRun/
 [Aa]ssets/Mirror/Icon
 [Aa]ssets/Mirror/Plugins
 [Aa]ssets/Mirror/Runtime/*.cs
-[Aa]ssets/Mirror/Runtime/*.meta
+# [Aa]ssets/Mirror/Runtime/*.meta
 [Aa]ssets/Mirror/Runtime/Logging/
 [Aa]ssets/Mirror/Runtime/Transport/*.cs
-[Aa]ssets/Mirror/Runtime/Transport/*.meta
+# [Aa]ssets/Mirror/Runtime/Transport/*.meta
 [Aa]ssets/Mirror/Runtime/Transport/Telepathy
 [Aa]ssets/Mirror/Runtime/Transport/Websocket/
 ![Aa]ssets/Mirror/Runtime/Transport/Ignorance/
