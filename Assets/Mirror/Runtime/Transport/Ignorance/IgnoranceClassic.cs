@@ -149,6 +149,16 @@ namespace Mirror
             }
         }
 
+        public override int GetConnectionRtt(uint connectionId)
+        {
+            if(ConnectionIDToPeers.TryGetValue((int)connectionId, out Peer peer))
+            {
+                return (int)peer.RoundTripTime;
+            }
+
+            throw new Exception("No peer!");
+        }
+
         public override bool ClientSend(int channelId, ArraySegment<byte> data)
         {
             return ENETClientSendInternal(channelId, data);
