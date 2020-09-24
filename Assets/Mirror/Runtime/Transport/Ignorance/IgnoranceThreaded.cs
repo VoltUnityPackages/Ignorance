@@ -321,6 +321,11 @@ namespace Mirror
 
         public override string ServerGetClientAddress(int connectionId)
         {
+            if(ConnectionIDToPeers.TryGetValue(connectionId, out Peer peer))
+            {
+                return peer.IP;
+            }
+
             return "UNKNOWN";
         }
 
