@@ -93,11 +93,6 @@ namespace Mirror
             throw new NotImplementedException();
         }
 
-        public override int GetConnectionRtt(uint connectionId)
-        {
-            throw new NotImplementedException();
-        }
-
         public override void ClientSend(int channelId, ArraySegment<byte> segment)
         {
             throw new NotImplementedException();

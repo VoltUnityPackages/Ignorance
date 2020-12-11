@@ -7,7 +7,7 @@
       "dependencies": {
         "nuget.mono-cecil": "0.1.6-preview"
       },
-      "hash": "fba091ad228b2f79ce42590c36967b7f52f8674d"
+      "hash": "59ab5e2bb16d75eeece932f128237e5c9d24d4bc"
     },
     "com.unity.ext.nunit": {
       "version": "1.0.6",

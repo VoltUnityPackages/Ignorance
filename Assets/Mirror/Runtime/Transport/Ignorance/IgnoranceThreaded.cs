@@ -246,16 +246,6 @@ namespace Mirror
             // ...
         }
 
-        public override int GetConnectionRtt(uint connectionId)
-        {
-            if (ConnectionIDToPeers.TryGetValue((int)connectionId, out Peer peer))
-            {
-                return (int)peer.RoundTripTime;
-            }
-
-            throw new Exception("No peer!");
-        }
-
         #endregion
 
         #region Server Portion
