@@ -1,6 +1,7 @@
 using UnityEngine;
+using Mirror;
 
-namespace Mirror.Examples.Pong
+namespace Ignorance.Examples
 {
     public class Ball : NetworkBehaviour
     {
